@@ -1,0 +1,295 @@
+---
+title: "p8105_MTP_hs3478"
+author: "Charles"
+date: "2024-10-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+The NYC Rental Dataset provides rental prices for ZIP codes in New York City from 2015 to 2024, while the Housing Value Dataset includes housing prices for ZIP codes across the U.S. in 2023. Our goal is to analyze trends in NYC rental and housing prices.  rephrase the sentence.
+## R Markdown
+```{r}
+#1
+nyc_rental <- 
+  read.csv("C:/Users/Shan Huachen/Desktop/MPH Core/Data Science/p8105_mpt_hs3478/Zip_zori_uc_sfrcondomfr_sm_month_NYC.csv") |>  # Load the dataset
+  janitor::clean_names() |>  # Clean column names to make them consistent and easier to work with
+  
+  pivot_longer(
+    cols = starts_with("x20"),  # Reshape columns starting with "x20" (which represent dates)
+    names_to = "date",          # Name the new date column as "date"
+    values_to = "rental_price"  # Name the values as "rental_price"
+  ) |>
+  
+  rename(zip_code = region_name, county = county_name) |>  # Rename columns to make them more intuitive
+  
+  mutate(
+    county = gsub(" County", "", county),  # Remove the " County" suffix from county names
+    date = gsub("x", "", date),            # Remove the "x" prefix from the date values
+    date = as.Date(as.character(date), format = "%Y_%m_%d")  # Convert the date column to proper date format
+  ) |>
+  
+  select(zip_code, county, date, rental_price) |>  # Keep only relevant columns for analysis
+  drop_na()  # Remove rows with missing data
+```
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+```{r}
+## Import and clean the ZIP code data
+
+library(rvest)
+
+zip_data <- 
+  read_html("https://p8105.com/data/zip_codes.html") |>  # Load the HTML content from the URL
+  html_table(fill = TRUE)  # Extract the table(s) from the HTML page
+
+zip <- 
+  zip_data[[1]] |>  # Access the first table and convert it to a data frame
+  janitor::clean_names() |>  # Standardize column names for easier use
+  
+  mutate(
+    borough = case_when(  # Create a new 'borough' column based on the 'county' column
+      county == "New York" ~ "Manhattan",
+      county == "Kings" ~ "Brooklyn",
+      county == "Queens" ~ "Queens",
+      county == "Bronx" ~ "Bronx",
+      county == "Richmond" ~ "Staten Island"
+    )
+  ) |> 
+  
+  select(zip_code, county, neighborhood, borough) |>  # Keep only the relevant columns
+  drop_na()  # Remove rows with missing values
+
+## Merge the NYC Rental and ZIP code data
+
+tidy <- 
+  merge(nyc_rental, zip, by = c("zip_code", "county")) |>  # Merge the rental and ZIP code datasets by 'zip_code' and 'county'
+  drop_na()  # Remove rows with missing values
+```
+
+Remove rows with missing values.
+```{r}
+## Import and clean the 2023 US Housing data
+
+house_value <- 
+  read.csv("C:/Users/Shan Huachen/Desktop/MPH Core/Data Science/p8105_mpt_hs3478/Zip_zori_uc_sfrcondomfr_sm_month_NYC.csv") |>  # Load the dataset
+  janitor::clean_names() |>  # Clean the column names to make them more consistent and readable
+  
+  pivot_longer(
+    cols = starts_with("x20"),  # Reshape columns that represent dates (starting with "x20")
+    names_to = "date",          # Create a new column called 'date'
+    values_to = "home_value"    # Store the housing values in a new column called 'home_value'
+  ) |>
+  
+  rename(zip_code = region_name, county = county_name) |>  # Rename 'region_name' to 'zip_code' and 'county_name' to 'county' for clarity
+  
+  mutate(
+    county = gsub(" County", "", county),  # Remove the " County" suffix from the 'county' names
+    date = gsub("x", "", date),            # Remove the "x" prefix from the 'date' values
+    date = as.Date(as.character(date), format = "%Y_%m_%d")  # Convert 'date' to a proper date format
+  ) |>
+  
+  select(zip_code, county, state, date, home_value) |>  # Retain only the relevant columns for further analysis
+  drop_na()  # Remove rows with missing values
+
+```
+
+```{r}
+length(unique(zip$zip_code)) # Number of ZIP codes in the ZIP code dataset
+
+```
+
+There are 116 months between January 2015 and August 2024, but many ZIP codes in the NYC Rental dataset have fewer than 116 observations. This could be due to properties not being rented out consistently every month.
+```{r}
+#2
+# Get the number of ZIP codes in zip_df but not rental_df
+Non_rental = anti_join(zip, nyc_rental, by = c("zip_code" = "region_name"))
+Non_rental = nrow(missing_rental)
+
+# Get the number of ZIP codes in zip_df but not rental_df
+Non_zip = anti_join(rental_df, zip_df, by = c("region_name" = "zip_code"))
+Non_zip = nrow(missing_zip)
+
+
+Non_rental
+Non_zip
+```
+
+
+```{r}
+# Create a table showing the average rental price by borough and year
+
+library(tidyr)
+library(knitr)
+
+# Create a new year variable
+tidy$year <- format(tidy$date, "%Y")
+
+# Use aggregate to calculate average rental prices by borough and year
+avg_rent_data <- aggregate(rental_price ~ borough + year, data = tidy, FUN = mean, na.rm = TRUE)
+
+# Pivot the data from long to wide format
+avg_rent_wide <- pivot_wider(avg_rent_data,
+                             names_from = year,
+                             values_from = rental_price)
+
+# Display the resulting table
+kable(avg_rent_wide, caption = "Average Rental Price")
+
+
+```
+```{r}
+tidy |>
+  filter(date %in% as.Date(c("2020-01-31", "2021-01-31"))) |>
+  mutate(year = format(date, "%Y")) |> 
+  select(zip_code, borough, neighborhood, year, rental_price) |>
+  pivot_wider(names_from = year, 
+              values_from = rental_price) |> 
+  mutate(price_drop = `2020` - `2021`) |> 
+  group_by(borough) |>
+  filter(price_drop == max(price_drop, na.rm = TRUE)) |>
+  select(borough, neighborhood, price_drop) |>
+  arrange(desc(price_drop)) |> 
+  knitr::kable(caption = "Drop in Rental Price from 2020 to 2021")
+```
+```{r}
+#3
+library(ggplot2)
+
+# Create a new year variable in the data frame
+tidy$year <- format(tidy$date, "%Y")
+
+# Generate the box plot
+plot1 <- ggplot(tidy, aes(x = year, y = rental_price)) +
+  geom_boxplot(fill = "red") +
+  facet_wrap(~ borough, scales = "free_y", ncol = 2) +
+  labs(title = "Distribution of Rental Prices in NYC by Borough and Year",
+       x = "Year",
+       y = "Rental Price (USD)",
+       fill = "Borough") +
+  theme_minimal(base_size = 12) +  # Set base font size for consistency
+  theme(plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        axis.text = element_text(size = 10)) +
+  scale_y_continuous(labels = scales::dollar_format())
+
+# Print the plot
+print(plot1)
+
+# Save the plot as a PDF
+ggsave("results/plot1_rental_price_borough.pdf", width = 14, height = 8)
+
+```
+```{r}
+library(ggplot2)
+
+# Create a new year variable in the data frame
+tidy$year <- format(tidy$date, "%Y")
+
+# Generate the line plot
+plot2 <- ggplot(tidy, aes(x = date, y = rental_price, color = borough)) +  # Use date on the x-axis and rental_price on the y-axis, color by borough
+  geom_line() +  # Create a line plot
+  facet_wrap(~ borough, scales = "free_y", ncol = 2) +  # Facet by borough with free y-scales
+  labs(title = "Trends in Rental Prices in NYC",
+       x = "Date",
+       y = "Rental Price",
+       color = "Borough") +  # Add labels for axes and title
+  theme_minimal(base_size = 10) +  # Use minimal theme with base font size of 10
+  theme(plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+        axis.text = element_text(size = 8)) +
+  scale_y_continuous(labels = scales::dollar_format())  # Format y-axis as dollar values
+
+# Print the plot
+print(plot2)
+
+# Save the plot as a PDF
+ggsave("results/plot2_rental_price_trends_borough.pdf", plot = plot2, width = 14, height = 8)
+```
+
+Manhattan has the highest rental prices, with a steady increase, particularly after the pandemic, and several high outliers exceeding $7,000 in 2024. Brooklyn and Queens display similar upward trends, with moderate price declines during 2020–2021 due to the pandemic, followed by strong recovery starting in 2022. Staten Island has the lowest rental prices, with minimal fluctuations. The Bronx shows gradual price growth, though the overall price range remains lower than in Manhattan and Brooklyn.
+```{r}
+library(ggplot2)
+
+# Filter for the year 2023 and compute average house prices by zip code and state
+plot2 <- house_value %>%
+  filter(format(as.Date(date), "%Y") == "2023") %>%
+  group_by(zip_code, state, month = format(as.Date(date), "%m")) %>%
+  summarise(avg_price = mean(home_value, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = state, y = avg_price)) + 
+  geom_boxplot(fill = "yellow") +  
+  labs(title = "ZIP-Code-Level House Price Distribution",
+       x = "State", 
+       y = "Average House Price") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        axis.text = element_text(size = 8)) +
+  scale_y_continuous(labels = scales::dollar_format())
+
+# Render the plot
+print(plot2)
+ggsave("results/plot2_house_distribution_state.pdf", width = 12, height = 8)
+```
+CA, NY, and MA have the highest median house prices and the widest range, with many outliers over 4000000. States with booming metropolitan areas show both higher median prices and greater price variability.
+* AL, MS, and OH exhibit much lower and more uniform house prices, with smaller spreads and no extreme outliers. States in the Midwest and South have more affordable and consistent housing prices.
+
+```{r}
+
+
+#plot 3
+library(ggplot2)
+
+# Calculate average rental prices by ZIP code for the year 2023
+avg_rent_data <- nyc_rental %>%
+  filter(format(date, "%Y") == "2023") %>%
+  group_by(zip_code) %>%
+  summarise(avg_rent = mean(rental_price, na.rm = TRUE), .groups = "drop")
+
+# Calculate average home values by ZIP code for the year 2023
+avg_home_value_data <- house_value %>%
+  filter(format(date, "%Y") == "2023") %>%
+  group_by(zip_code) %>%
+  summarise(avg_home_value = mean(home_value, na.rm = TRUE), .groups = "drop")
+
+# Merge rental and home value data
+comparison_data <- left_join(avg_rent_data, avg_home_value_data, by = "zip_code")
+
+# Create the plot
+plot3 <- ggplot(comparison_data, aes(x = avg_rent, y = avg_home_value)) +
+  geom_point(alpha = 0.7, color = "purple") +
+  geom_smooth(method = "lm", color = "pink", se = FALSE) +
+  labs(title = "2023 Comparison of Housing and Rental Prices by ZIP Code in NYC",
+       x = "Average Rental Price (USD)",
+       y = "Average Housing Price (USD)") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 13, face = "bold", hjust = 0.5)) +
+  scale_x_continuous(labels = scales::dollar_format()) +
+  scale_y_continuous(labels = scales::dollar_format())
+
+# Display the plot
+print(plot3)
+
+# Save the plot as a PDF
+ggsave("results/plot3_price_comparison.pdf", width = 8, height = 5)
+
+```
+There is a positive correlation between rental and housing prices, with ZIP codes that have higher rental prices also tending to have higher housing prices.
+The majority of data points are clustered within the range of $2,000–$4,000 for rental prices and $500,000–$1,500,000 for housing prices.
+A few outliers are present, including one ZIP code with a housing price exceeding $3 million, despite having a relatively moderate rental price of around $4,000.
+
+Comment:
+The scatter plot reveals a positive correlation between average rental and housing prices across ZIP codes, indicated by the upward-sloping trend line. This trend suggests that areas with higher rental prices typically also have higher property values.
+
+Limitations:
+
+Missing Data: Some ZIP codes are missing either rental or housing prices, which could bias the analysis.
+Lack of Borough-Level Grouping: ZIP codes are not categorized by borough, making it more difficult to compare rental and housing prices across different boroughs and assess regional price variations.
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
